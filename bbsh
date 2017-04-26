@@ -1,0 +1,604 @@
+#!/usr/bin/env bash
+
+###########################################################################
+# Name: Bitbake Shell
+# Description:
+#  Script to create a shell environment for Bitbake builds to
+#  occur.  The intent is to prevent contamination of the host shell
+#  environment *AND* to prevent contamination of the build shell.
+#
+# TODO:
+#  1) Explore using chroot/schroot to provide more isolation to the build
+#     environment.
+#  2) Make more shell agnostic and remove bash-isms
+#  3) Add color to output
+#
+# LICENSE:
+#
+# MIT License
+# 
+# Copyright (c) 2017 Sean Hudson
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+# 
+###########################################################################
+
+unset BUILD_DIR
+unset CONFIG_FILE
+unset CONFIG_FILES
+unset LAYER_DIR
+unset USER_CONF_ONLY
+
+START_DIR="$(pwd)"
+SCRIPT_NAME="$(basename ${BASH_SOURCE})"
+SHELL_PROMPT="BITBAKE SHELL"
+
+debug ()
+{
+  test -z "${DEBUG}" || echo -en "DEBUG: ${*}\n"
+}
+
+error ()
+{
+  echo -en "\n\n\tERROR: ${*}\n" >&2
+}
+
+
+warning ()
+{
+  echo -en "\n\n\tWARNING: ${*}\n" >&2
+}
+
+dumpvars()
+{
+  debug "  BUILD_DIR                   = '${BUILD_DIR}'"
+  debug "  CONFIG_FILES                = '${CONFIG_FILES[@]}'"
+  debug "  LAYER_DIR                   = '${LAYER_DIR}'"
+  debug "  SCRIPT_LOCATION             = '${BASH_SOURCE}'"
+  debug "  SCRIPT_NAME                 = '${SCRIPT_NAME}'"
+  debug "  INIT_ARGS                   = '${INIT_ARGS[@]}'"
+  debug "  INIT_SETUP_SCRIPT           = '${INIT_SETUP_SCRIPT}'"
+  debug "  SETUP_SCRIPT                = '${SETUP_SCRIPT}'"
+  debug "  SHELL_PROMPT                = '${SHELL_PROMPT}'"
+  debug "  START_DIR                   = '${START_DIR}'"
+  debug "  ENV_ARGS                    = '${ENV_ARGS[@]}'"
+
+  debug "  CMD_LINE_CONFIG_FILE        = '${CMD_LINE_CONFIG_FILE}'"
+  debug "  CMD_LINE_INIT_ARGS          = '${CMD_LINE_INIT_ARGS[@]}'"
+  debug "  CMD_LINE_INIT_SETUP_SCRIPT  = '${CMD_LINE_INIT_SETUP_SCRIPT}'"
+  debug "  CMD_LINE_SETUP_SCRIPT       = '${CMD_LINE_SETUP_SCRIPT}'"
+}
+
+usage ()
+{
+  if [ -n "${1}" ]; then
+    error "${1}"
+  fi
+  echo
+  echo "Description:"
+  echo "    Create a 'clean' shell environment for Bitbake builds."
+  echo "    NOTE: shells can be nested and will be indicated by the prompt"
+  echo
+  echo "Modes of operation:"
+  echo "      direct execution mode:  ${SCRIPT_NAME} <${SCRIPT_NAME} options> -- <command> <command options>"
+  echo "              Ex:  ${SCRIPT_NAME} -d -b ../ -- bitbake-layers --help"
+  echo "      shell creation mode  :  ${SCRIPT_NAME} <${SCRIPT_NAME} options>"
+  echo "              Ex:  ${SCRIPT_NAME} -d -b ../"
+  echo
+  echo "Configuration Files:"
+  echo "    Configuration files tailor the defaults of this script."
+  echo "    Files will be searched and sourced in the following order:"
+  echo "    1) Location of the script file itself, e.g. ~/bin/${SCRIPT_NAME}.conf"
+  echo "    2) Current working directory, e.g. ./${SCRIPT_NAME}.conf"
+  echo "    3) Build directory, if it exists, e.g. \${BUILD_DIR}/${SCRIPT_NAME}.conf"
+  echo "    4) Command line specified configuration file."
+  echo
+  echo "    Allowed Configuration File Variables:"
+  echo "      DEBUG, INIT_ARGS, INIT_SETUP_SCRIPT, PREPEND_PATHS, SETUP_SCRIPT"
+  echo
+  echo "    LIMITATIONS:"
+  echo "      1) Currently, configuration parsing is rudimentary and only works"
+  echo "         for single line entries."
+  echo
+  echo "Usage: ${SCRIPT_NAME} <options> -- <command + options to execute>"
+  echo "    -b|--build <build dir>   build execution directory, defaults to ./"
+  echo "    -c|--config <file>       add a configuration file to use"
+  echo "    -d|--debug               enable debug output"
+  echo "    -h|--help"
+  echo "    -i|--init                initial invocation will create the build directory"
+  echo "      |--init-args           arguments to pass during the initial invocation"
+  echo "      |--init-setup--script  script to call for the initial invocation"
+  echo "    -l|--layer <layer dir>   meta-data layers directory, defaults to <build>/../"
+  echo "    -p|--paths <paths>       paths, delimited by ':', to prepend to \$PATH"
+  echo "                               e.g.  --paths \"a:b:c\""
+  echo "    -s|--script <file>       setup script to run before execution"
+  echo "                               defaults to <layer directory>/oe-init-build-env"
+  echo "    -u|--user-conf-only      only use the conf file specified with -c"
+  echo
+  echo "NOTE(s):"
+  echo "    Options that specify files assume relative paths to the calling directory for this script."
+  echo
+
+  if [ -n "${2}" ]; then
+    exit "${2}"
+  fi
+
+  # Return a default exit code
+  exit 1
+}
+
+expand_file_var()
+{
+    # Parameters:
+    #   $1 - Indirect variable, contains a variable name which contains a file name/path
+    #   $2 - Direct variable, contains filename description
+    #   $3 - Direct variable, indicates if file *must* exist
+    #   $4 - Direct variable, contains default value for variable
+    local __resultvar="${1}"
+    local __result=""
+    local __description="${2}"
+    local __required="${3}"
+    local __default="${4}"
+
+    debug "Processing ${__description}"
+
+    if [ -z "${!__resultvar}" ]; then
+        if [ -z "${__default}" ]; then
+            return
+        else
+            # Expand the passed in default
+            __result="$(readlink -f ${__default})"
+        fi
+    else
+        # Expand the passed in variable
+        __result="$(readlink -f ${!__resultvar})"
+    fi
+
+    # Ensure that the variable is a file and is readable.
+    if [ ! -f "${__result}" ] || [ ! -r "${__result}" ] ; then
+        if [ -n "${__required}" ] && [ ! "${__required}" = "false" ] ; then
+            usage "${__description} doesn't exist, isn't a file, or isn't readable"
+        else
+            # The file doesn't exist, but isn't required, so leave the result var unset.
+            debug "${__result} doesn't exist, isn't a file, or isn't readable"
+            return
+        fi
+    fi
+
+    # Set the result indirect variable
+    eval "${__resultvar}=${__result}"
+
+    debug "${__resultvar}=${__result}"
+}
+
+expand_dir_var()
+{
+    # Parameters:
+    #   $1 - Indirect variable, contains a variable name which contains a dir path
+    #   $2 - Direct variable, contains directory description
+    #   $3 - Direct variable, indicates if the directory *must* exist
+    #   $4 - Direct variable, contains default value for variable
+    local __resultvar="${1}"
+    local __description="${2}"
+    local __mustexist="${3}"
+    local __default="${4}"
+    local __result=""
+
+    debug "Processing ${__description}"
+
+    # Check if the variable has a value to validate.
+    if [ -z "${!__resultvar}" ]; then
+        debug "${__resultvar} undefined"
+        # Check if a default was specified.
+        if [ -z "${__default}" ]; then
+            debug "${__resultvar} has no default specified"
+            return
+        else
+            # Expand the passed in default
+            __result="$(readlink -f ${__default})"
+            debug "default of '${__default}' expanded to : '${__result}'"
+        fi
+    else
+        # Expand the passed in variable
+        __result="$(readlink -f ${!__resultvar})"
+        debug "'${!__resultvar}' expanded to : '${__result}'"
+    fi
+
+    # Ensure that the variable is a directory, is readable, and executable.
+    if [ ! -d "${__result}" ] || [ ! -r "${__result}" ] || [ ! -x "${__result}" ] ; then
+        if [ "${__mustexist}" = "true" ]; then
+            usage "${__description} '${!__resultvar}' doesn't exist, isn't a directory, isn't readable, or isn't executable"
+        fi
+    fi
+
+    # Set the indirect variable with the expanded result
+    eval "${__resultvar}=${__result}"
+    debug "${__resultvar}=${__result}"
+}
+
+parse_config_file()
+{
+    # Parameters:
+    #   $1 - Indirect variable, contains a variable name which contains a config file name/path
+    local __conffile_var="${1}"
+    local __excluded_grep_pattern="[#%&;<>|]|^\$"
+    local __allowed="^INIT_ARGS=|^INIT_SETUP_SCRIPT=|^SETUP_SCRIPT=|^SHELL_PROMPT=|^ENV_ARGS=|^GIT_SSL_CAINFO=|^MGLS_LICENSE_FILE=|^LM_LICENSE_FILE="
+    local __warning="^CMD_LINE_INIT=|^USER_CONF_ONLY"
+    local __temp="$(mktemp)"
+
+    debug "Parsing config file: ${!__conffile_var}"
+
+    if [ -z "${!__conffile_var}" ]; then
+        debug "config file not specified"
+    else
+        # Strip the conf file of excluded lines and then match warning lines
+        egrep -v "${__excluded_grep_pattern}" "${!__conffile_var}" | egrep "${__warning}" > "${__temp}"
+
+        # Display a warning for all matched lines
+        while read line
+        do
+            varname=$(echo "$line" | cut -d '=' -f 1)
+            warning "$varname is not allowed in a configuration file"
+        done < "${__temp}"
+
+        # Strip the conf file of excluded lines and then only match allowed lines
+        egrep -v "${__excluded_grep_pattern}" "${!__conffile_var}" | egrep "${__allowed}" > "${__temp}"
+
+        # Source the result to use in this shell
+        while read line
+        do
+            varname=$(echo "$line" | cut -d '=' -f 1)
+            debug "$varname=$(echo "$line" | cut -d '=' -f 2-)"
+            eval "$varname=$(echo "$line" | cut -d '=' -f 2-)"
+        done < "${__temp}"
+    fi
+    rm "${__temp}"
+}
+
+parse_config_files()
+{
+    CONFIG_FILES=( \
+        "$(dirname ${BASH_SOURCE})/${SCRIPT_NAME}.conf" \
+        "${START_DIR}/${SCRIPT_NAME}.conf" \
+        "${LAYER_DIR}/${SCRIPT_NAME}.conf" \
+    )
+
+    # Check if we will process the user specified config only.
+    if [ -n "${USER_CONF_ONLY}" ]; then
+        CONFIG_FILES=("${CONFIG_FILE}")
+    else
+        CONFIG_FILES+=("${CONFIG_FILE}")
+    fi
+
+    # Expand each config file and process it
+    for file in ${CONFIG_FILES[@]}
+    do
+        unset TMP_CONFIG_FILE
+        debug "Searching for config file: ${file}"
+        # Expand the config file variable and process it
+        expand_file_var TMP_CONFIG_FILE "configuration file" "false" "${file}"
+        if [ -n "${TMP_CONFIG_FILE}" ]; then
+            parse_config_file "TMP_CONFIG_FILE"
+        fi
+    done
+}
+
+overide_vars_with_cmd_line()
+{
+    # Override values for the following command line options:
+    # INIT_ARGS, INIT_SETUP_SCRIPT, LAYER_DIR, PREPEND_PATHS, SETUP_SCRIPT
+
+    if [ -n "${CMD_LINE_INIT_ARGS}" ]; then
+        debug "Overriding INIT_ARGS of '${INIT_ARGS[@]}' with '${CMD_LINE_INIT_ARGS[@]}'"
+        INIT_ARGS=("${CMD_LINE_INIT_ARGS[@]}")
+    fi
+    if [ -n "${CMD_LINE_CONFIG_FILE}" ]; then
+        debug "Overriding CONFIG_FILE of '${CONFIG_FILE}' with '${CMD_LINE_CONFIG_FILE}'"
+        CONFIG_FILE="${CMD_LINE_CONFIG_FILE}"
+    fi
+    if [ -n "${CMD_LINE_INIT_SETUP_SCRIPT}" ]; then
+        debug "Overriding INIT_SETUP_SCRIPT of '${INIT_SETUP_SCRIPT}' with '${CMD_LINE_INIT_SETUP_SCRIPT}'"
+        INIT_SETUP_SCRIPT="${CMD_LINE_INIT_SETUP_SCRIPT}"
+    fi
+    if [ -n "${CMD_LINE_SETUP_SCRIPT}" ]; then
+        debug "Overriding SETUP_SCRIPT of '${SETUP_SCRIPT}' with '${CMD_LINE_SETUP_SCRIPT}'"
+        SETUP_SCRIPT="${CMD_LINE_SETUP_SCRIPT}"
+    fi
+}
+
+expandpaths()
+{
+    local __NEWPATHS="${1}"
+
+    EXPANDED_PATHS=""
+    for tmppath in $( \
+        echo "${__NEWPATHS}" | \
+        xargs -d : -n 1 \
+        ); do
+        if [ -n "${EXPANDED_PATHS}" ]; then
+            EXPANDED_PATHS="${EXPANDED_PATHS}:$(eval cd -P -- "${tmppath}";pwd -P)"
+        else
+            EXPANDED_PATHS="$(eval cd -P -- "${tmppath}";pwd -P)"
+        fi
+    done
+    echo "${EXPANDED_PATHS}"
+}
+
+process_cmd_line_options()
+{
+    if [ -n "${USER_CONF_ONLY}" ] && [ -z "${CMD_LINE_CONFIG_FILE}" ]; then
+        usage "User only conf file option selected, but no conf file was specified"
+    fi
+
+    # Expand any command line LAYER_DIR
+    if  [ -n "${BUILD_DIR}" ]; then
+        if  [ -n "${CMD_LINE_INIT}" ]; then
+            # BUILD_DIR is set for an initial invocation
+            expand_dir_var BUILD_DIR "the build directory" "false"
+            if [ -d "${BUILD_DIR}" ]; then
+                usage "build directory '${BUILD_DIR}' already exists!"
+            fi
+        else
+            # BUILD_DIR is set for an normal invocation
+            expand_dir_var BUILD_DIR "the build directory" "true"
+        fi
+    elif  [ -n "${CMD_LINE_INIT}" ]; then
+        # BUILD_DIR is not set for an initial invocation
+        expand_dir_var BUILD_DIR "the build directory" "false" "$(cd -P -- .;pwd -P)/build"
+        usage "build directory '${BUILD_DIR}' already exists!"
+    else
+        # BUILD_DIR is not set for a normal invocation
+        expand_dir_var BUILD_DIR "the build directory" "true" "$(pwd -P)"
+    fi
+
+    # Expand the layer directory and default to the parent of the build directory, if un-set.
+    expand_dir_var LAYER_DIR "the layer directory" "true" "$(dirname ${BUILD_DIR})"
+}
+
+# Following parsing code was pulled from stackoverflow.com
+# http://stackoverflow.com/posts/29754866
+getopt --test > /dev/null
+if [[ $? -ne 4 ]]; then
+    usage "\`getopt --test\` failed in this environment." 1
+fi
+
+SHORT="b:c:dhil:p:s:u"
+LONG="build:,config:,debug,help,init,init-args:,init-setup-script:,layer:,paths:,script:user-conf-only"
+
+# -temporarily store output to be able to check for errors
+# -activate advanced mode getopt quoting e.g. via “--options”
+# -pass arguments only via   -- "$@"   to separate them correctly
+PARSED=`getopt --options $SHORT --longoptions $LONG --name "$0" -- "$@"`
+if [[ $? -ne 0 ]]; then
+    # e.g. $? == 1
+    #  then getopt has complained about wrong arguments to stdout
+    usage
+fi
+
+# use eval with "$PARSED" to properly handle the quoting
+eval set -- "$PARSED"
+
+# Process options until we see "--"
+while true; do
+    case "$1" in
+        -b|--build)
+            # Defer processing BUILD_DIR until all command line args are parsed.
+            BUILD_DIR="$2"
+            BUILD_DIR_SPECIFIED="y"
+            shift 2
+            ;;
+        -c|--config)
+            CMD_LINE_CONFIG_FILE="$2"
+            expand_file_var CMD_LINE_CONFIG_FILE "command line config file value" "true"
+            shift 2
+            ;;
+        -d|--debug)
+            DEBUG=y
+            shift
+            ;;
+        -h|--help)
+            usage
+            ;;
+        -i|--init)
+            CMD_LINE_INIT=y
+            debug "Initial invocation specified"
+            shift
+            ;;
+        --init-args)
+            CMD_LINE_INIT_ARGS="$2"
+            shift 2
+            ;;
+        --init-setup-script)
+            CMD_LINE_INIT_SETUP_SCRIPT="$2"
+            expand_file_var CMD_LINE_INIT_SETUP_SCRIPT "command line initial setup script value"
+            shift 2
+            ;;
+        -l|--layer)
+            # Defer processing LAYER_DIR until all command line args are parsed.
+            LAYER_DIR="$2"
+            LAYER_DIR_SPECIFIED="y"
+            shift 2
+            ;;
+        -p|--paths)
+            CMD_LINE_PREPEND_PATHS="$2"
+            debug "CMD_LINE_PREPEND_PATHS=${CMD_LINE_PREPEND_PATHS}"
+            shift 2
+            ;;
+        -s|--script)
+            CMD_LINE_SETUP_SCRIPT="$2"
+            expand_file_var CMD_LINE_SETUP_SCRIPT "command line setup script value"
+            shift 2
+            ;;
+        -u|--user-conf-only)
+            USER_CONF_ONLY=y
+            shift
+            ;;
+        --)
+            shift
+            # Capture the remaining args to pass to the execution environment
+            CMD_ARGS="${*}"
+            debug "CMD_ARGS=${CMD_ARGS}"
+            break
+            ;;
+        *)
+            usage "Unknown option specified: ${OPTARG}"
+            ;;
+    esac
+done
+
+# Drop all remaining args to ensure that setup and other scripts cannot see them.
+shift $#
+
+process_cmd_line_options
+
+# After this point, BUILD_DIR and LAYER_DIR are defined.
+
+overide_vars_with_cmd_line
+parse_config_files
+overide_vars_with_cmd_line
+
+# If initial execution, use the INIT_SETUP_SCRIPT.
+# Otherwise, use any SETUP_SCRIPT specified, or default to OE script.
+if [ -n "${CMD_LINE_INIT}" ]; then
+    if [ -n "${INIT_SETUP_SCRIPT}" ]; then
+        SETUP_SCRIPT="${INIT_SETUP_SCRIPT}"
+    fi
+
+    expand_file_var SETUP_SCRIPT "initial setup script" "true" "${LAYER_DIR}/oe-init-build-env"
+else
+    expand_file_var SETUP_SCRIPT "build environment script" "true" "${LAYER_DIR}/oe-init-build-env"
+fi
+
+# Set a shell level marker for nested shells
+if [ -z "$BSHLVL" ]
+then
+  BSHLVL=1
+else
+  ((BSHLVL++))
+fi
+export BSHLVL
+PS1="${SHELL_PROMPT}-(${BSHLVL}):\W\$ "
+export PS1
+
+# Set a basic path
+PATH="\
+/usr/sbin:\
+/usr/bin:\
+/sbin:\
+/bin\
+"
+
+# Expand pre-pend paths before calling the setup script
+ABS_PREPEND_PATHS="$(expandpaths  "${PREPEND_PATHS}")"
+
+# Export the PATH so that the setup script uses that path
+export PATH
+
+if [ ! -r "${SETUP_SCRIPT}" ]
+then
+   usage "${SETUP_SCRIPT} does not exist or is not readable!" 1
+fi
+
+# Check for any init args
+if [ -z "${INIT_ARGS}" ]; then
+    INIT_ARGS=("${BUILD_DIR}")
+fi
+
+if [ -n "$DEBUG" ]; then
+    debug "Sourcing '${SETUP_SCRIPT}'"
+
+    if [ -n "${CMD_LINE_INIT}" ]; then
+        cd "$(dirname ${BUILD_DIR})"
+        source "${SETUP_SCRIPT}" "${INIT_ARGS[@]}"
+    else
+        source "${SETUP_SCRIPT}"
+    fi
+else
+    if [ -n "${CMD_LINE_INIT}" ]; then
+        cd "$(dirname ${BUILD_DIR})"
+        source "${SETUP_SCRIPT}" "${INIT_ARGS[@]}" > /dev/null
+    else
+        source "${SETUP_SCRIPT}" > /dev/null
+    fi
+fi
+
+if [ ${?} -ne 0 ]
+then
+   usage "\"/${SETUP_SCRIPT}\" returned an error, exiting..." 1
+fi
+
+# Prepend to the path
+if [ -n "${ABS_PREPEND_PATHS}" ]; then
+    PATH="${ABS_PREPEND_PATHS}:${PATH}"
+fi
+
+# Dump path
+if [ -n "$DEBUG" ]; then
+    printf 'PATH is now : \n%s\n\n'  "$(echo "${PATH}" | \
+    tr ':' '\n' | sed -e s/"^"/"\t"/g )"
+fi
+
+TMP_ENV_ARGS=()
+TMP_ENV_ARG_NAMES=( "$(echo "${BB_ENV_EXTRAWHITE}" | tr ' ' '\n' | sort | uniq | tr '\n' ' ')" )
+
+for arg in ${TMP_ENV_ARG_NAMES[@]}
+do
+    if [ ! -z "${!arg}" ]; then
+        debug "Propogating environment variable: '${arg}'='${!arg}'"
+        TMP_ENV_ARGS=( ${TMP_ENV_ARGS[@]} "${arg}=\"${!arg}\"" )
+    fi
+done
+
+debug "TMP_ENV_ARGS = '${TMP_ENV_ARGS[@]}'"
+debug "ENV_ARGS = '${ENV_ARGS[@]}'"
+
+# Set default environment variables to propogate
+ENV_ARGS=( \
+    ${TMP_ENV_ARGS[@]} \
+    "BB_ENV_EXTRAWHITE=${BB_ENV_EXTRAWHITE:?}" \
+    "BUILDDIR=${BUILDDIR:?}" \
+    "HOME=${HOME}" \
+    "BSHLVL=$BSHLVL" \
+    "PATH=${PATH}" \
+    "PS1=${PS1}" \
+    "TERM=${TERM}" \
+    "LANG=${LANG}" \
+    ${ENV_ARGS[@]} \
+    )
+
+# Change to the build directory and start there.
+cd "${BUILD_DIR:?}"
+
+dumpvars
+
+# Setup a "clean" shell with only the basic variables set.
+if [ -n "${CMD_ARGS}" ]; then
+    /usr/bin/env -i \
+    "${ENV_ARGS[@]}" \
+    bash --noprofile --norc \
+    -c "${CMD_ARGS}"
+else
+    /usr/bin/env -i \
+    "${ENV_ARGS[@]}" \
+    bash --noprofile --norc
+fi
+
+debug "Exiting ${SCRIPT_NAME}"
+
+# vi: set expandtab tabstop=2 shiftwidth=2 incsearch ignorecase
