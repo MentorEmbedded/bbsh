@@ -535,7 +535,7 @@ if [ -n "$DEBUG" ]; then
         cd "$(dirname ${BUILD_DIR})"
         source "${SETUP_SCRIPT}" "${INIT_ARGS[@]}"
     else
-        source "${SETUP_SCRIPT}"
+        source "${SETUP_SCRIPT}" "${BUILD_DIR}"
     fi
 else
     if [ -n "${CMD_LINE_INIT}" ]; then
@@ -547,7 +547,7 @@ else
         cd "$(dirname ${BUILD_DIR})"
         source "${SETUP_SCRIPT}" "${INIT_ARGS[@]}" > /dev/null
     else
-        source "${SETUP_SCRIPT}" > /dev/null
+        source "${SETUP_SCRIPT}" "${BUILD_DIR}" > /dev/null
     fi
 fi
 
