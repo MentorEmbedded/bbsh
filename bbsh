@@ -515,26 +515,21 @@ then
    usage "${SETUP_SCRIPT} does not exist or is not readable!" 1
 fi
 
-# Check for any init args
-if [ -z "${INIT_ARGS}" ]; then
-    INIT_ARGS=("${BUILD_DIR}")
-fi
-
 if [ -n "$DEBUG" ]; then
     debug "Sourcing '${SETUP_SCRIPT}'"
 
     if [ -n "${CMD_LINE_INIT}" ]; then
         cd "$(dirname ${BUILD_DIR})"
-        source "${SETUP_SCRIPT}" "${INIT_ARGS[@]}"
+        source "${SETUP_SCRIPT}" "${BUILD_DIR}" "${INIT_ARGS[@]}"
     else
-        source "${SETUP_SCRIPT}"
+        source "${SETUP_SCRIPT}" "${BUILD_DIR}"
     fi
 else
     if [ -n "${CMD_LINE_INIT}" ]; then
         cd "$(dirname ${BUILD_DIR})"
-        source "${SETUP_SCRIPT}" "${INIT_ARGS[@]}" > /dev/null
+        source "${SETUP_SCRIPT}" "${BUILD_DIR}" "${INIT_ARGS[@]}" > /dev/null
     else
-        source "${SETUP_SCRIPT}" > /dev/null
+        source "${SETUP_SCRIPT}" "${BUILD_DIR}" > /dev/null
     fi
 fi
 
@@ -581,9 +576,6 @@ ENV_ARGS=( \
     "LANG=${LANG}" \
     ${ENV_ARGS[@]} \
     )
-
-# Change to the build directory and start there.
-cd "${BUILD_DIR:?}"
 
 dumpvars
 
