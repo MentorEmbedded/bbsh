@@ -163,11 +163,11 @@ expand_file_var()
             return
         else
             # Expand the passed in default
-            __result="$(readlink -f ${__default})"
+            __result="$(readlink -m ${__default})"
         fi
     else
         # Expand the passed in variable
-        __result="$(readlink -f ${!__resultvar})"
+        __result="$(readlink -m ${!__resultvar})"
     fi
 
     # Ensure that the variable is a file and is readable.
@@ -211,12 +211,12 @@ expand_dir_var()
             return
         else
             # Expand the passed in default
-            __result="$(readlink -f ${__default})"
+            __result="$(readlink -m ${__default})"
             debug "default of '${__default}' expanded to : '${__result}'"
         fi
     else
         # Expand the passed in variable
-        __result="$(readlink -f ${!__resultvar})"
+        __result="$(readlink -m ${!__resultvar})"
         debug "'${!__resultvar}' expanded to : '${__result}'"
     fi
 
@@ -515,26 +515,32 @@ then
    usage "${SETUP_SCRIPT} does not exist or is not readable!" 1
 fi
 
-# Check for any init args
-if [ -z "${INIT_ARGS}" ]; then
-    INIT_ARGS=("${BUILD_DIR}")
-fi
-
 if [ -n "$DEBUG" ]; then
     debug "Sourcing '${SETUP_SCRIPT}'"
 
     if [ -n "${CMD_LINE_INIT}" ]; then
+        if [ ! -d "$(dirname ${BUILD_DIR})" ]; then
+            # The user wants to use a multipart BUILD_DIR such as build/<blah>
+            debug "Making base directory $(dirname ${BUILD_DIR})"
+            mkdir -p $(dirname ${BUILD_DIR})
+        fi
+
         cd "$(dirname ${BUILD_DIR})"
-        source "${SETUP_SCRIPT}" "${INIT_ARGS[@]}"
+        source "${SETUP_SCRIPT}" "${BUILD_DIR}" "${INIT_ARGS[@]}"
     else
-        source "${SETUP_SCRIPT}"
+        source "${SETUP_SCRIPT}" "${BUILD_DIR}"
     fi
 else
     if [ -n "${CMD_LINE_INIT}" ]; then
+        if [ ! -d "$(dirname ${BUILD_DIR})" ]; then
+            # The user wants to use a multipart BUILD_DIR such as build/<blah>
+            mkdir -p $(dirname ${BUILD_DIR})
+        fi
+
         cd "$(dirname ${BUILD_DIR})"
-        source "${SETUP_SCRIPT}" "${INIT_ARGS[@]}" > /dev/null
+        source "${SETUP_SCRIPT}" "${BUILD_DIR}" "${INIT_ARGS[@]}" > /dev/null
     else
-        source "${SETUP_SCRIPT}" > /dev/null
+        source "${SETUP_SCRIPT}" "${BUILD_DIR}" > /dev/null
     fi
 fi
 
@@ -581,9 +587,6 @@ ENV_ARGS=( \
     "LANG=${LANG}" \
     ${ENV_ARGS[@]} \
     )
-
-# Change to the build directory and start there.
-cd "${BUILD_DIR:?}"
 
 dumpvars
 
