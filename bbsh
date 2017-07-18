@@ -163,11 +163,11 @@ expand_file_var()
             return
         else
             # Expand the passed in default
-            __result="$(readlink -f ${__default})"
+            __result="$(readlink -m ${__default})"
         fi
     else
         # Expand the passed in variable
-        __result="$(readlink -f ${!__resultvar})"
+        __result="$(readlink -m ${!__resultvar})"
     fi
 
     # Ensure that the variable is a file and is readable.
@@ -211,12 +211,12 @@ expand_dir_var()
             return
         else
             # Expand the passed in default
-            __result="$(readlink -f ${__default})"
+            __result="$(readlink -m ${__default})"
             debug "default of '${__default}' expanded to : '${__result}'"
         fi
     else
         # Expand the passed in variable
-        __result="$(readlink -f ${!__resultvar})"
+        __result="$(readlink -m ${!__resultvar})"
         debug "'${!__resultvar}' expanded to : '${__result}'"
     fi
 
@@ -519,6 +519,12 @@ if [ -n "$DEBUG" ]; then
     debug "Sourcing '${SETUP_SCRIPT}'"
 
     if [ -n "${CMD_LINE_INIT}" ]; then
+        if [ ! -d "$(dirname ${BUILD_DIR})" ]; then
+            # The user wants to use a multipart BUILD_DIR such as build/<blah>
+            debug "Making base directory $(dirname ${BUILD_DIR})"
+            mkdir -p $(dirname ${BUILD_DIR})
+        fi
+
         cd "$(dirname ${BUILD_DIR})"
         source "${SETUP_SCRIPT}" "${BUILD_DIR}" "${INIT_ARGS[@]}"
     else
@@ -526,6 +532,11 @@ if [ -n "$DEBUG" ]; then
     fi
 else
     if [ -n "${CMD_LINE_INIT}" ]; then
+        if [ ! -d "$(dirname ${BUILD_DIR})" ]; then
+            # The user wants to use a multipart BUILD_DIR such as build/<blah>
+            mkdir -p $(dirname ${BUILD_DIR})
+        fi
+
         cd "$(dirname ${BUILD_DIR})"
         source "${SETUP_SCRIPT}" "${BUILD_DIR}" "${INIT_ARGS[@]}" > /dev/null
     else
