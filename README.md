@@ -1,5 +1,5 @@
 # bbsh
-Bitbake Wrapper Shell Script
+Bitbake Shell Wrapper Script
   
 # Description:
 Script to create a 'clean' shell environment for Bitbake builds to occur.  
