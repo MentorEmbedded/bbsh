@@ -361,7 +361,9 @@ process_cmd_line_options()
     elif  [ -n "${CMD_LINE_INIT}" ]; then
         # BUILD_DIR is not set for an initial invocation
         expand_dir_var BUILD_DIR "the build directory" "false" "$(cd -P -- .;pwd -P)/build"
-        usage "build directory '${BUILD_DIR}' already exists!"
+        if [ -d "${BUILD_DIR}" ]; then
+            usage "build directory '${BUILD_DIR}' already exists!"
+        fi
     else
         # BUILD_DIR is not set for a normal invocation
         expand_dir_var BUILD_DIR "the build directory" "true" "$(pwd -P)"
@@ -533,7 +535,7 @@ if [ -n "$DEBUG" ]; then
         cd "$(dirname ${BUILD_DIR})"
         source "${SETUP_SCRIPT}" "${INIT_ARGS[@]}"
     else
-        source "${SETUP_SCRIPT}"
+        source "${SETUP_SCRIPT}" "${BUILD_DIR}"
     fi
 else
     if [ -n "${CMD_LINE_INIT}" ]; then
@@ -545,7 +547,7 @@ else
         cd "$(dirname ${BUILD_DIR})"
         source "${SETUP_SCRIPT}" "${INIT_ARGS[@]}" > /dev/null
     else
-        source "${SETUP_SCRIPT}" > /dev/null
+        source "${SETUP_SCRIPT}" "${BUILD_DIR}" > /dev/null
     fi
 fi
 
