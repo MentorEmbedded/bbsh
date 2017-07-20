@@ -361,7 +361,9 @@ process_cmd_line_options()
     elif  [ -n "${CMD_LINE_INIT}" ]; then
         # BUILD_DIR is not set for an initial invocation
         expand_dir_var BUILD_DIR "the build directory" "false" "$(cd -P -- .;pwd -P)/build"
-        usage "build directory '${BUILD_DIR}' already exists!"
+        if [ -d "${BUILD_DIR}" ]; then
+            usage "build directory '${BUILD_DIR}' already exists!"
+        fi
     else
         # BUILD_DIR is not set for a normal invocation
         expand_dir_var BUILD_DIR "the build directory" "true" "$(pwd -P)"
