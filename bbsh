@@ -487,7 +487,9 @@ invoke_setup_script()
 {
     local __setup_script="${1}"
     local __build_dir="${2}"
-    local __init_args="${3}"
+
+    shift 2
+    local __init_args=("${@}")
     local __setup_args=()
 
     # Verify that the setup script is a readable file
@@ -520,7 +522,7 @@ invoke_setup_script()
         __setup_args="${__build_dir}"
     fi
 
-    debug "Sourcing '${__setup_script}'"
+    debug "Sourcing '${__setup_script} ${__setup_args[@]}'"
 
     if [ -z "$DEBUG" ]; then
         source "${__setup_script}" "${__setup_args[@]}" > /dev/null
@@ -637,6 +639,9 @@ validate_cmd_line_options
 parse_config_files
 overide_vars_with_cmd_line
 set_default_config
+debug "Re-process config files again to expand variables"
+parse_config_files
+overide_vars_with_cmd_line
 validate_final_config
 
 # Set a shell level marker for nested shells
@@ -664,7 +669,7 @@ ABS_PREPEND_PATHS="$(expandpaths  "${PREPEND_PATHS}")"
 # Export the PATH so that the setup script uses that path
 export PATH
 
-invoke_setup_script "${SETUP_SCRIPT}" "${BUILD_DIR}" "${INIT_ARGS}"
+invoke_setup_script "${SETUP_SCRIPT}" "${BUILD_DIR}" "${INIT_ARGS[@]}"
 
 # Prepend to the path
 if [ -n "${ABS_PREPEND_PATHS}" ]; then
