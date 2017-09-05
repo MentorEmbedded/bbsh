@@ -399,11 +399,7 @@ validate_final_config()
     # If initial execution, use the INIT_SETUP_SCRIPT.
     # Otherwise, use any SETUP_SCRIPT specified, or default to OE script.
     if [ -n "${CMD_LINE_INIT}" ]; then
-        if [ -n "${INIT_SETUP_SCRIPT}" ]; then
-            SETUP_SCRIPT="${INIT_SETUP_SCRIPT}"
-        fi
-
-        expand_file_var SETUP_SCRIPT "initial setup script" "true"
+        expand_file_var INIT_SETUP_SCRIPT "initial setup script" "true"
     else
         expand_file_var SETUP_SCRIPT "build environment script" "true"
     fi
@@ -504,7 +500,7 @@ invoke_setup_script()
         # Check for any special arguments to pass for an initial invocation
         if [ -z "${__init_args}" ]; then
             debug "Adding default init args, the build directory"
-            __setup_args="${__build_dir}"
+            __setup_args=("${__build_dir}")
         else
             __setup_args="${__init_args[@]}"
         fi
@@ -521,15 +517,15 @@ invoke_setup_script()
 
     # The default setup script, oe-init-build-env, needs the ${BUILD_DIR} every time
     elif [ "$(basename ${SETUP_SCRIPT})" = "oe-init-build-env" ]; then
-        __setup_args="${__build_dir}"
+        __setup_args=("${__build_dir}")
     fi
 
     debug "Sourcing '${__setup_script} ${__setup_args[@]}'"
 
     if [ -z "$DEBUG" ]; then
-        source "${__setup_script}" "${__setup_args[@]}" > /dev/null
+        source "${__setup_script}" ${__setup_args[@]} > /dev/null
     else
-        source "${__setup_script}" "${__setup_args[@]}"
+        source "${__setup_script}" ${__setup_args[@]}
     fi
 
     if [ ${?} -ne 0 ]; then
@@ -685,7 +681,13 @@ if [ -n "${CMD_LINE_OUTPUT_CONF_FILE}" ]; then
     dump_current_conf "${CMD_LINE_OUTPUT_CONF_FILE}" "${CMD_LINE_OVERWRITE_CONF}"
 fi
 
-invoke_setup_script "${SETUP_SCRIPT}" "${BUILD_DIR}" "${INIT_ARGS[@]}"
+
+# If initial execution, use the INIT_SETUP_SCRIPT, otherwise, use SETUP_SCRIPT.
+if [ -n "${CMD_LINE_INIT}" ]; then
+    invoke_setup_script "${INIT_SETUP_SCRIPT}" "${BUILD_DIR}" "${INIT_ARGS[@]}"
+else
+    invoke_setup_script "${SETUP_SCRIPT}" "${BUILD_DIR}" "${INIT_ARGS[@]}"
+fi
 
 # Prepend to the path
 if [ -n "${ABS_PREPEND_PATHS}" ]; then
