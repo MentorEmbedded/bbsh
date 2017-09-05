@@ -132,6 +132,8 @@ usage ()
   echo "      |--init-setup-script   script to call for the initial invocation"
   echo "                               defaults to value for setup script"
   echo "    -l|--layer <layer dir>   meta-data layers directory, defaults to <build dir>/../"
+  echo "    -o|--output-conf <file>  output a conf file for this run, defaults to <build dir>/./"
+  echo "      |--overwrite-conf      overwrite an existing conf file, if found"
   echo "    -p|--paths <paths>       paths, delimited by ':', to prepend to \$PATH"
   echo "                               e.g.  --paths \"a:b:c\""
   echo "    -s|--script <file>       setup script to run before execution"
@@ -410,8 +412,8 @@ validate_final_config()
 # This function will dump the current configuration to "${BUILD_DIR}/${SCRIPT_NAME}.conf"
 dump_current_conf()
 {
-    local __force="${1}"
-    local __output_conf="${BUILD_DIR}/${SCRIPT_NAME}.conf"
+    local __output_conf="${1}"
+    local __force="${2}"
 
     if [ -z "${BUILD_DIR}" ]; then
         usage "Error trying to generate \"${__output_conf}\""
@@ -537,7 +539,7 @@ invoke_setup_script()
     # Check for any initial invocation
     if [ -n "${CMD_LINE_INIT}" ]; then
         # Dump a copy of the current configuration to BUILD_DIR
-        dump_current_conf
+        dump_current_conf "${BUILD_DIR}/${SCRIPT_NAME}.conf"
     fi
 }
 
@@ -548,8 +550,8 @@ if [[ $? -ne 4 ]]; then
     usage "\`getopt --test\` failed in this environment." 1
 fi
 
-SHORT="b:c:dhil:p:s:u"
-LONG="build:,config:,debug,help,init,init-args:,init-setup-script:,layer:,paths:,script:user-conf-only"
+SHORT="b:c:dhil:o:p:s:u"
+LONG="build:,config:,debug,help,init,init-args:,init-setup-script:,layer:,output-conf:,overwrite-conf,paths:,script:user-conf-only"
 
 # -temporarily store output to be able to check for errors
 # -activate advanced mode getopt quoting e.g. via “--options”
@@ -602,6 +604,15 @@ while true; do
             CMD_LINE_LAYER_DIR="$2"
             expand_dir_var CMD_LINE_LAYER_DIR "the layer directory" "true"
             shift 2
+            ;;
+        -o|--output-conf)
+            CMD_LINE_OUTPUT_CONF_FILE="$2"
+            debug "CMD_LINE_OUTPUT_CONF_FILE=${CMD_LINE_OUTPUT_CONF_FILE}"
+            shift 2
+            ;;
+        --overwrite-conf)
+            CMD_LINE_OVERWRITE_CONF=y
+            shift
             ;;
         -p|--paths)
             CMD_LINE_PREPEND_PATHS="$2"
@@ -668,6 +679,11 @@ ABS_PREPEND_PATHS="$(expandpaths  "${PREPEND_PATHS}")"
 
 # Export the PATH so that the setup script uses that path
 export PATH
+
+# Check if the user wants to overwrite the conf file.
+if [ -n "${CMD_LINE_OUTPUT_CONF_FILE}" ]; then
+    dump_current_conf "${CMD_LINE_OUTPUT_CONF_FILE}" "${CMD_LINE_OVERWRITE_CONF}"
+fi
 
 invoke_setup_script "${SETUP_SCRIPT}" "${BUILD_DIR}" "${INIT_ARGS[@]}"
 
