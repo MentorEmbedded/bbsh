@@ -67,6 +67,7 @@ warning ()
 
 dumpvars()
 {
+  debug " Dumping debug variables"
   debug "  BUILD_DIR                   = '${BUILD_DIR}'"
   debug "  CONFIG_FILES                = '${CONFIG_FILES[@]}'"
   debug "  LAYER_DIR                   = '${LAYER_DIR}'"
@@ -78,10 +79,12 @@ dumpvars()
   debug "  SHELL_PROMPT                = '${SHELL_PROMPT}'"
   debug "  START_DIR                   = '${START_DIR}'"
   debug "  ENV_ARGS                    = '${ENV_ARGS[@]}'"
-
+  debug ""
+  debug "  CMD_LINE_BUILD_DIR          = '${CMD_LINE_BUILD_DIR}'"
   debug "  CMD_LINE_CONFIG_FILE        = '${CMD_LINE_CONFIG_FILE}'"
   debug "  CMD_LINE_INIT_ARGS          = '${CMD_LINE_INIT_ARGS[@]}'"
   debug "  CMD_LINE_INIT_SETUP_SCRIPT  = '${CMD_LINE_INIT_SETUP_SCRIPT}'"
+  debug "  CMD_LINE_LAYER_DIR          = '${CMD_LINE_LAYER_DIR}'"
   debug "  CMD_LINE_SETUP_SCRIPT       = '${CMD_LINE_SETUP_SCRIPT}'"
 }
 
@@ -119,11 +122,12 @@ usage ()
   echo "Usage: ${SCRIPT_NAME} <options> -- <command + options to execute>"
   echo "    -b|--build <build dir>   build execution directory, defaults to ./"
   echo "    -c|--config <file>       add a configuration file to use"
-  echo "    -d|--debug               enable debug output"
+  echo "    -d|--debug               enable debug output (defaults to off)"
   echo "    -h|--help"
-  echo "    -i|--init                initial invocation will create the build directory"
+  echo "    -i|--init                initial invocation creates a build directory"
   echo "      |--init-args           arguments to pass during the initial invocation"
-  echo "      |--init-setup--script  script to call for the initial invocation"
+  echo "      |--init-setup-script   script to call for the initial invocation"
+  echo "                               defaults to value for setup script"
   echo "    -l|--layer <layer dir>   meta-data layers directory, defaults to <build>/../"
   echo "    -p|--paths <paths>       paths, delimited by ':', to prepend to \$PATH"
   echo "                               e.g.  --paths \"a:b:c\""
@@ -156,7 +160,7 @@ expand_file_var()
     local __required="${3}"
     local __default="${4}"
 
-    debug "Processing ${__description}"
+    debug "Expanding variable for: ${__description}"
 
 
     # Check if the variable has a value to validate.
@@ -308,11 +312,10 @@ parse_config_files()
 
 overide_vars_with_cmd_line()
 {
-    # Override values for the following command line options:
-    # INIT_ARGS, INIT_SETUP_SCRIPT, LAYER_DIR, PREPEND_PATHS, SETUP_SCRIPT
+    # Override values with ones specified with command line options
 
     if [ -n "${CMD_LINE_INIT_ARGS}" ]; then
-        debug "Overriding INIT_ARGS of '${INIT_ARGS[@]}' with '${CMD_LINE_INIT_ARGS[@]}'"
+        debug "Overriding INIT_ARGS of '${INIT_ARGS[@]}' with command line version: '${CMD_LINE_INIT_ARGS[@]}'"
         INIT_ARGS=("${CMD_LINE_INIT_ARGS[@]}")
     fi
     if [ -n "${CMD_LINE_CONFIG_FILE}" ]; then
@@ -320,11 +323,11 @@ overide_vars_with_cmd_line()
         CONFIG_FILE="${CMD_LINE_CONFIG_FILE}"
     fi
     if [ -n "${CMD_LINE_INIT_SETUP_SCRIPT}" ]; then
-        debug "Overriding INIT_SETUP_SCRIPT of '${INIT_SETUP_SCRIPT}' with '${CMD_LINE_INIT_SETUP_SCRIPT}'"
+        debug "Overriding INIT_SETUP_SCRIPT of '${INIT_SETUP_SCRIPT}' with command line version: '${CMD_LINE_INIT_SETUP_SCRIPT}'"
         INIT_SETUP_SCRIPT="${CMD_LINE_INIT_SETUP_SCRIPT}"
     fi
     if [ -n "${CMD_LINE_SETUP_SCRIPT}" ]; then
-        debug "Overriding SETUP_SCRIPT of '${SETUP_SCRIPT}' with '${CMD_LINE_SETUP_SCRIPT}'"
+        debug "Overriding SETUP_SCRIPT of '${SETUP_SCRIPT}' with command line version: '${CMD_LINE_SETUP_SCRIPT}'"
         SETUP_SCRIPT="${CMD_LINE_SETUP_SCRIPT}"
     fi
 }
