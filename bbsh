@@ -158,16 +158,23 @@ expand_file_var()
 
     debug "Processing ${__description}"
 
+
+    # Check if the variable has a value to validate.
     if [ -z "${!__resultvar}" ]; then
+        debug "${__resultvar} undefined"
+        # Check if a default was specified.
         if [ -z "${__default}" ]; then
+            debug "${__resultvar} has no default specified"
             return
         else
             # Expand the passed in default
             __result="$(readlink -m ${__default})"
+            debug "default of '${__default}' expanded to : '${__result}'"
         fi
     else
         # Expand the passed in variable
         __result="$(readlink -m ${!__resultvar})"
+        debug "'${!__resultvar}' expanded to : '${__result}'"
     fi
 
     # Ensure that the variable is a file and is readable.
