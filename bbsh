@@ -128,7 +128,7 @@ usage ()
   echo "    -c|--config <file>       add a configuration file to use"
   echo "    -d|--debug               enable debug output (defaults to off)"
   echo "    -h|--help"
-  echo "    -i|--init                initial invocation creates a build directory"
+  echo "    -i|--init                initial invocation creates a build directory and conf file"
   echo "      |--init-args           arguments to pass during the initial invocation"
   echo "      |--init-setup-script   script to call for the initial invocation"
   echo "                               defaults to value for setup script"
@@ -333,6 +333,33 @@ overide_vars_with_cmd_line()
     fi
 }
 
+# This function will dump the current configuration to "${BUILD_DIR}/${SCRIPT_NAME}.conf"
+dump_current_conf()
+{
+    local __force="${1}"
+    local __output_conf="${BUILD_DIR}/${SCRIPT_NAME}.conf"
+
+    if [ -z "${BUILD_DIR}" ]; then
+        usage "Error trying to generate \"${__output_conf}\""
+    fi
+
+    if [ -n "${__force}" ]; then
+        warning "(Forced) Overwriting \"${__output_conf}\""
+    elif [ -r "${__output_conf}" ]; then
+        usage "\"${__output_conf}\" already exists"
+    fi
+
+    debug "Creating working configuration file: ${__output_conf}"
+
+    echo "BUILD_DIR='${BUILD_DIR}'" > "${__output_conf}"
+    echo "LAYER_DIR='${LAYER_DIR}'" >> "${__output_conf}"
+    echo "INIT_ARGS='${INIT_ARGS[@]}'" >> "${__output_conf}"
+    echo "INIT_SETUP_SCRIPT='${INIT_SETUP_SCRIPT}'" >> "${__output_conf}"
+    echo "SETUP_SCRIPT='${SETUP_SCRIPT}'" >> "${__output_conf}"
+    echo "SHELL_PROMPT='${SHELL_PROMPT}'" >> "${__output_conf}"
+    echo "ENV_ARGS='${ENV_ARGS[@]}'"  >> "${__output_conf}"
+}
+
 expandpaths()
 {
     local __NEWPATHS="${1}"
@@ -429,6 +456,12 @@ invoke_setup_script()
 
     if [ ${?} -ne 0 ]; then
         usage "\"/${__setup_script}\" returned an error, exiting..." 1
+    fi
+
+    # Check for any initial invocation
+    if [ -n "${CMD_LINE_INIT}" ]; then
+        # Dump a copy of the current configuration to BUILD_DIR
+        dump_current_conf
     fi
 }
 
