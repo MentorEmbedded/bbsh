@@ -51,7 +51,6 @@ unset USER_CONF_ONLY
 
 START_DIR="$(pwd -P)"
 SCRIPT_NAME="$(basename ${BASH_SOURCE})"
-SHELL_PROMPT="BITBAKE SHELL"
 
 debug ()
 {
@@ -253,7 +252,7 @@ parse_config_file()
     #   $1 - Indirect variable, contains a variable name which contains a config file name/path
     local __conffile_var="${1}"
     local __excluded_grep_pattern="[#%&;<>|]|^\$"
-    local __allowed="^INIT_ARGS=|^INIT_SETUP_SCRIPT=|^SETUP_SCRIPT=|^SHELL_PROMPT=|^ENV_ARGS=|^GIT_SSL_CAINFO=|^MGLS_LICENSE_FILE=|^LM_LICENSE_FILE="
+    local __allowed="^BUILD_DIR|^LAYER_DIR=|^INIT_ARGS=|^INIT_SETUP_SCRIPT=|^SETUP_SCRIPT=|^SHELL_PROMPT=|^ENV_ARGS=|^GIT_SSL_CAINFO=|^MGLS_LICENSE_FILE=|^LM_LICENSE_FILE="
     local __warning="^CMD_LINE_INIT=|^USER_CONF_ONLY"
     local __temp="$(mktemp)"
 
@@ -323,6 +322,14 @@ overide_vars_with_cmd_line()
 {
     # Override values with ones specified with command line options
 
+    if [ -n "${CMD_LINE_BUILD_DIR}" ]; then
+        debug "Overriding BUILD_DIR of '${BUILD_DIR}' with command line version: '${CMD_LINE_BUILD_DIR}'"
+        BUILD_DIR=("${CMD_LINE_BUILD_DIR}")
+    fi
+    if [ -n "${CMD_LINE_LAYER_DIR}" ]; then
+        debug "Overriding LAYER_DIR of '${LAYER_DIR}' with command line version: '${CMD_LINE_LAYER_DIR}'"
+        LAYER_DIR=("${CMD_LINE_LAYER_DIR}")
+    fi
     if [ -n "${CMD_LINE_INIT_ARGS}" ]; then
         debug "Overriding INIT_ARGS of '${INIT_ARGS[@]}' with command line version: '${CMD_LINE_INIT_ARGS[@]}'"
         INIT_ARGS=("${CMD_LINE_INIT_ARGS[@]}")
@@ -334,6 +341,69 @@ overide_vars_with_cmd_line()
     if [ -n "${CMD_LINE_SETUP_SCRIPT}" ]; then
         debug "Overriding SETUP_SCRIPT of '${SETUP_SCRIPT}' with command line version: '${CMD_LINE_SETUP_SCRIPT}'"
         SETUP_SCRIPT="${CMD_LINE_SETUP_SCRIPT}"
+    fi
+}
+
+validate_cmd_line_options()
+{
+    debug "Validating command line arguments"
+
+    if [ -n "${USER_CONF_ONLY}" ] && [ -z "${CMD_LINE_CONFIG_FILE}" ]; then
+        usage "User only conf file option selected, but no conf file was specified"
+    fi
+
+    # Expand CMD_LINE_BUILD_DIR, if provided.
+    if  [ -n "${CMD_LINE_BUILD_DIR}" ]; then
+        if  [ -n "${CMD_LINE_INIT}" ]; then
+            # CMD_LINE_BUILD_DIR is set and this is an initial invocation
+            # Ensure expanded CMD_LINE_BUILD_DIR *DOESN'T* exist already.
+            expand_dir_var CMD_LINE_BUILD_DIR "the build directory" "false"
+            if [ -d "${CMD_LINE_BUILD_DIR}" ]; then
+                usage "build directory '${CMD_LINE_BUILD_DIR}' already exists!"
+            fi
+        else
+            # CMD_LINE_BUILD_DIR is set for an normal invocation
+            # Ensure expanded CMD_LINE_BUILD_DIR *DOES* exist already.
+            expand_dir_var CMD_LINE_BUILD_DIR "the build directory" "true"
+        fi
+    elif  [ -n "${CMD_LINE_INIT}" ]; then
+        # CMD_LINE_BUILD_DIR is not set and this is an initial invocation
+        expand_dir_var CMD_LINE_BUILD_DIR "the build directory" "false"
+        usage "build directory '${CMD_LINE_BUILD_DIR}' already exists!"
+#     else
+#         # CMD_LINE_BUILD_DIR is not set and this is a normal invocation
+#         # Use START_DIR as the default
+#         expand_dir_var CMD_LINE_BUILD_DIR "the build directory" "true"
+    fi
+}
+
+validate_final_config()
+{
+    debug "Validating final configuration"
+
+    # For an initial invocation, ensure BUILD_DIR *DOESN'T* exist.
+    if  [ -n "${CMD_LINE_INIT}" ] && [ -d "${BUILD_DIR}" ]; then
+        usage "build directory '${_BUILD_DIR}' already exists!"
+    # For subsequent invocations, ensure BUILD_DIR *DOES* exist.
+    elif [ -z "${CMD_LINE_INIT}" ] && [ ! -d "${BUILD_DIR}" ]; then
+        usage "build directory '${_BUILD_DIR}' doesn't exist!"
+    fi
+
+    # Ensure LAYER_DIR *DOES* exist.
+    if  [ ! -d "${LAYER_DIR}" ]; then
+        usage "layer directory '${LAYER_DIR}' doesn't exist!"
+    fi
+
+    # If initial execution, use the INIT_SETUP_SCRIPT.
+    # Otherwise, use any SETUP_SCRIPT specified, or default to OE script.
+    if [ -n "${CMD_LINE_INIT}" ]; then
+        if [ -n "${INIT_SETUP_SCRIPT}" ]; then
+            SETUP_SCRIPT="${INIT_SETUP_SCRIPT}"
+        fi
+
+        expand_file_var SETUP_SCRIPT "initial setup script" "true"
+    else
+        expand_file_var SETUP_SCRIPT "build environment script" "true"
     fi
 }
 
@@ -364,6 +434,37 @@ dump_current_conf()
     echo "ENV_ARGS='${ENV_ARGS[@]}'"  >> "${__output_conf}"
 }
 
+set_default_config()
+{
+    # Set values to defaults that haven't been specified previously
+    # Validate each option that gets set here.
+
+    if [ -z "${BUILD_DIR}" ]; then
+        BUILD_DIR="${START_DIR}/build"
+        debug "Using default BUILD_DIR of '${BUILD_DIR}'"
+    fi
+    if [ -z "${LAYER_DIR}" ]; then
+        LAYER_DIR="$(dirname ${BUILD_DIR})"
+        debug "Using default LAYER_DIR of '${LAYER_DIR}'"
+    fi
+    if [ -z "${INIT_ARGS}" ]; then
+        INIT_ARGS=("${BUILD_DIR}")
+        debug "Using default INIT_ARGS of '${INIT_ARGS[@]}'"
+    fi
+    if [ -z "${SETUP_SCRIPT}" ]; then
+        SETUP_SCRIPT="${LAYER_DIR}/poky/oe-init-build-env"
+        debug "Using default SETUP_SCRIPT of '${SETUP_SCRIPT}'"
+    fi
+    if [ -z "${INIT_SETUP_SCRIPT}" ]; then
+        INIT_SETUP_SCRIPT="${SETUP_SCRIPT}"
+        debug "Using default INIT_SETUP_SCRIPT of '${INIT_SETUP_SCRIPT}'"
+    fi
+    if [ -z "${SHELL_PROMPT}" ]; then
+        SHELL_PROMPT="BITBAKE SHELL"
+        debug "Using default SHELL_PROMPT of '${SHELL_PROMPT}'"
+    fi
+}
+
 expandpaths()
 {
     local __NEWPATHS="${1}"
@@ -380,37 +481,6 @@ expandpaths()
         fi
     done
     echo "${EXPANDED_PATHS}"
-}
-
-process_cmd_line_options()
-{
-    if [ -n "${USER_CONF_ONLY}" ] && [ -z "${CMD_LINE_CONFIG_FILE}" ]; then
-        usage "User only conf file option selected, but no conf file was specified"
-    fi
-
-    # Expand any command line LAYER_DIR
-    if  [ -n "${BUILD_DIR}" ]; then
-        if  [ -n "${CMD_LINE_INIT}" ]; then
-            # BUILD_DIR is set for an initial invocation
-            expand_dir_var BUILD_DIR "the build directory" "false"
-            if [ -d "${BUILD_DIR}" ]; then
-                usage "build directory '${BUILD_DIR}' already exists!"
-            fi
-        else
-            # BUILD_DIR is set for an normal invocation
-            expand_dir_var BUILD_DIR "the build directory" "true"
-        fi
-    elif  [ -n "${CMD_LINE_INIT}" ]; then
-        # BUILD_DIR is not set for an initial invocation
-        expand_dir_var BUILD_DIR "the build directory" "false" "$(cd -P -- .;pwd -P)/build"
-        usage "build directory '${BUILD_DIR}' already exists!"
-    else
-        # BUILD_DIR is not set for a normal invocation
-        expand_dir_var BUILD_DIR "the build directory" "true" "$(pwd -P)"
-    fi
-
-    # Expand the layer directory and default to the parent of the build directory, if un-set.
-    expand_dir_var LAYER_DIR "the layer directory" "true" "$(dirname ${BUILD_DIR})"
 }
 
 invoke_setup_script()
@@ -497,8 +567,7 @@ while true; do
     case "$1" in
         -b|--build)
             # Defer processing BUILD_DIR until all command line args are parsed.
-            BUILD_DIR="$2"
-            BUILD_DIR_SPECIFIED="y"
+            CMD_LINE_BUILD_DIR="$2"
             shift 2
             ;;
         -c|--config)
@@ -528,9 +597,8 @@ while true; do
             shift 2
             ;;
         -l|--layer)
-            # Defer processing LAYER_DIR until all command line args are parsed.
-            LAYER_DIR="$2"
-            LAYER_DIR_SPECIFIED="y"
+            CMD_LINE_LAYER_DIR="$2"
+            expand_dir_var CMD_LINE_LAYER_DIR "the layer directory" "true"
             shift 2
             ;;
         -p|--paths)
@@ -563,25 +631,13 @@ done
 # Drop all remaining args to ensure that setup and other scripts cannot see them.
 shift $#
 
-process_cmd_line_options
-
-# After this point, BUILD_DIR and LAYER_DIR are defined.
-
-overide_vars_with_cmd_line
+# Process configuration options from command line and config files.
+# Apply defaultsC and validate final configuration.
+validate_cmd_line_options
 parse_config_files
 overide_vars_with_cmd_line
-
-# If initial execution, use the INIT_SETUP_SCRIPT.
-# Otherwise, use any SETUP_SCRIPT specified, or default to OE script.
-if [ -n "${CMD_LINE_INIT}" ]; then
-    if [ -n "${INIT_SETUP_SCRIPT}" ]; then
-        SETUP_SCRIPT="${INIT_SETUP_SCRIPT}"
-    fi
-
-    expand_file_var SETUP_SCRIPT "initial setup script" "true" "${LAYER_DIR}/poky/oe-init-build-env"
-else
-    expand_file_var SETUP_SCRIPT "build environment script" "true" "${LAYER_DIR}/poky/oe-init-build-env"
-fi
+set_default_config
+validate_final_config
 
 # Set a shell level marker for nested shells
 if [ -z "$BSHLVL" ]
