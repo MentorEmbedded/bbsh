@@ -128,7 +128,7 @@ usage ()
   echo "    -p|--paths <paths>       paths, delimited by ':', to prepend to \$PATH"
   echo "                               e.g.  --paths \"a:b:c\""
   echo "    -s|--script <file>       setup script to run before execution"
-  echo "                               defaults to <layer directory>/oe-init-build-env"
+  echo "                               defaults to <layer directory>/poky/oe-init-build-env"
   echo "    -u|--user-conf-only      only use the conf file specified with -c"
   echo
   echo "NOTE(s):"
@@ -487,9 +487,9 @@ if [ -n "${CMD_LINE_INIT}" ]; then
         SETUP_SCRIPT="${INIT_SETUP_SCRIPT}"
     fi
 
-    expand_file_var SETUP_SCRIPT "initial setup script" "true" "${LAYER_DIR}/oe-init-build-env"
+    expand_file_var SETUP_SCRIPT "initial setup script" "true" "${LAYER_DIR}/poky/oe-init-build-env"
 else
-    expand_file_var SETUP_SCRIPT "build environment script" "true" "${LAYER_DIR}/oe-init-build-env"
+    expand_file_var SETUP_SCRIPT "build environment script" "true" "${LAYER_DIR}/poky/oe-init-build-env"
 fi
 
 # Set a shell level marker for nested shells
