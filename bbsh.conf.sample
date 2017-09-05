@@ -1,4 +1,4 @@
 INIT_ARGS=( "${BUILD_DIR}" )
-INIT_SETUP_SCRIPT="${LAYER_DIR}/oe-init-build-env"
-SETUP_SCRIPT="${LAYER_DIR}/oe-init-build-env"
+INIT_SETUP_SCRIPT="${LAYER_DIR}/poky/oe-init-build-env"
+SETUP_SCRIPT="${LAYER_DIR}/poky/oe-init-build-env"
 SHELL_PROMPT="BITBAKE SHELL"
