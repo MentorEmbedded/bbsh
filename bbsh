@@ -283,7 +283,7 @@ parse_config_files()
     CONFIG_FILES=( \
         "$(dirname ${BASH_SOURCE})/${SCRIPT_NAME}.conf" \
         "${START_DIR}/${SCRIPT_NAME}.conf" \
-        "${LAYER_DIR}/${SCRIPT_NAME}.conf" \
+        "${BUILD_DIR}/${SCRIPT_NAME}.conf" \
     )
 
     # Check if we will process the user specified config only.
@@ -376,6 +376,56 @@ process_cmd_line_options()
 
     # Expand the layer directory and default to the parent of the build directory, if un-set.
     expand_dir_var LAYER_DIR "the layer directory" "true" "$(dirname ${BUILD_DIR})"
+}
+
+invoke_setup_script()
+{
+    local __setup_script="${1}"
+    local __build_dir="${2}"
+    local __init_args="${3}"
+    local __setup_args=()
+
+    # Verify that the setup script is a readable file
+    if [ ! -r "${__setup_script}" ]; then
+        usage "${__setup_script} does not exist or is not readable!" 1
+    fi
+
+    # Check for any initial invocation
+    if [ -n "${CMD_LINE_INIT}" ]; then
+        # Check for any special arguments to pass for an initial invocation
+        if [ -z "${__init_args}" ]; then
+            debug "Adding default init args, the build directory"
+            __setup_args="${__build_dir}"
+        else
+            __setup_args="${__init_args[@]}"
+        fi
+
+        # For an initial invocation, create missing tree for build directory
+        if [ ! -d "$(dirname ${__build_dir})" ]; then
+            # The user wants to use a multipart __build_dir such as build/<blah>
+            if [ -n "$DEBUG" ]; then
+                mkdir -pv $(dirname ${__build_dir})
+            else
+                mkdir -p $(dirname ${__build_dir})
+            fi
+        fi
+
+    # The default setup script, oe-init-build-env, needs the ${BUILD_DIR} every time
+    elif [ "$(basename ${SETUP_SCRIPT})" = "oe-init-build-env" ]; then
+        __setup_args="${__build_dir}"
+    fi
+
+    debug "Sourcing '${__setup_script}'"
+
+    if [ -z "$DEBUG" ]; then
+        source "${__setup_script}" "${__setup_args[@]}" > /dev/null
+    else
+        source "${__setup_script}" "${__setup_args[@]}"
+    fi
+
+    if [ ${?} -ne 0 ]; then
+        usage "\"/${__setup_script}\" returned an error, exiting..." 1
+    fi
 }
 
 # Following parsing code was pulled from stackoverflow.com
@@ -517,49 +567,7 @@ ABS_PREPEND_PATHS="$(expandpaths  "${PREPEND_PATHS}")"
 # Export the PATH so that the setup script uses that path
 export PATH
 
-if [ ! -r "${SETUP_SCRIPT}" ]
-then
-   usage "${SETUP_SCRIPT} does not exist or is not readable!" 1
-fi
-
-# Check for any init args
-if [ -z "${INIT_ARGS}" ]; then
-    INIT_ARGS=("${BUILD_DIR}")
-fi
-
-if [ -n "$DEBUG" ]; then
-    debug "Sourcing '${SETUP_SCRIPT}'"
-
-    if [ -n "${CMD_LINE_INIT}" ]; then
-        if [ ! -d "$(dirname ${BUILD_DIR})" ]; then
-            # The user wants to use a multipart BUILD_DIR such as build/<blah>
-            debug "Making base directory $(dirname ${BUILD_DIR})"
-            mkdir -p $(dirname ${BUILD_DIR})
-        fi
-
-        cd "$(dirname ${BUILD_DIR})"
-        source "${SETUP_SCRIPT}" "${INIT_ARGS[@]}"
-    else
-        source "${SETUP_SCRIPT}"
-    fi
-else
-    if [ -n "${CMD_LINE_INIT}" ]; then
-        if [ ! -d "$(dirname ${BUILD_DIR})" ]; then
-            # The user wants to use a multipart BUILD_DIR such as build/<blah>
-            mkdir -p $(dirname ${BUILD_DIR})
-        fi
-
-        cd "$(dirname ${BUILD_DIR})"
-        source "${SETUP_SCRIPT}" "${INIT_ARGS[@]}" > /dev/null
-    else
-        source "${SETUP_SCRIPT}" > /dev/null
-    fi
-fi
-
-if [ ${?} -ne 0 ]
-then
-   usage "\"/${SETUP_SCRIPT}\" returned an error, exiting..." 1
-fi
+invoke_setup_script "${SETUP_SCRIPT}" "${BUILD_DIR}" "${INIT_ARGS}"
 
 # Prepend to the path
 if [ -n "${ABS_PREPEND_PATHS}" ]; then
