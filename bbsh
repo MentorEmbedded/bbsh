@@ -131,7 +131,7 @@ usage ()
   echo "      |--init-args           arguments to pass during the initial invocation"
   echo "      |--init-setup-script   script to call for the initial invocation"
   echo "                               defaults to value for setup script"
-  echo "    -l|--layer <layer dir>   meta-data layers directory, defaults to <build>/../"
+  echo "    -l|--layer <layer dir>   meta-data layers directory, defaults to <build dir>/../"
   echo "    -p|--paths <paths>       paths, delimited by ':', to prepend to \$PATH"
   echo "                               e.g.  --paths \"a:b:c\""
   echo "    -s|--script <file>       setup script to run before execution"
