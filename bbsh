@@ -291,8 +291,12 @@ parse_config_files()
     CONFIG_FILES=( \
         "$(dirname ${BASH_SOURCE})/${SCRIPT_NAME}.conf" \
         "${START_DIR}/${SCRIPT_NAME}.conf" \
-        "${BUILD_DIR}/${SCRIPT_NAME}.conf" \
     )
+
+    # Check for a conf file in the build directory on 'non-initial' calls
+    if [ -z "${CMD_LINE_INIT}" ] && [ -n "${CMD_LINE_BUILD_DIR}" ]; then
+        CONFIG_FILES+=" ${CMD_LINE_BUILD_DIR}/${SCRIPT_NAME}.conf "
+    fi
 
     # Check if we will process the user specified config only.
     # NOTE: we've already validated that the config file exists.
