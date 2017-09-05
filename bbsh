@@ -40,7 +40,6 @@
 ###########################################################################
 
 unset BUILD_DIR
-unset CONFIG_FILE
 unset CONFIG_FILES
 unset LAYER_DIR
 unset USER_CONF_ONLY
@@ -291,10 +290,11 @@ parse_config_files()
     )
 
     # Check if we will process the user specified config only.
+    # NOTE: we've already validated that the config file exists.
     if [ -n "${USER_CONF_ONLY}" ]; then
-        CONFIG_FILES=("${CONFIG_FILE}")
+        CONFIG_FILES=("${CMD_LINE_CONFIG_FILE}")
     else
-        CONFIG_FILES+=("${CONFIG_FILE}")
+        CONFIG_FILES+=("${CMD_LINE_CONFIG_FILE}")
     fi
 
     # Expand each config file and process it
@@ -317,10 +317,6 @@ overide_vars_with_cmd_line()
     if [ -n "${CMD_LINE_INIT_ARGS}" ]; then
         debug "Overriding INIT_ARGS of '${INIT_ARGS[@]}' with command line version: '${CMD_LINE_INIT_ARGS[@]}'"
         INIT_ARGS=("${CMD_LINE_INIT_ARGS[@]}")
-    fi
-    if [ -n "${CMD_LINE_CONFIG_FILE}" ]; then
-        debug "Overriding CONFIG_FILE of '${CONFIG_FILE}' with '${CMD_LINE_CONFIG_FILE}'"
-        CONFIG_FILE="${CMD_LINE_CONFIG_FILE}"
     fi
     if [ -n "${CMD_LINE_INIT_SETUP_SCRIPT}" ]; then
         debug "Overriding INIT_SETUP_SCRIPT of '${INIT_SETUP_SCRIPT}' with command line version: '${CMD_LINE_INIT_SETUP_SCRIPT}'"
